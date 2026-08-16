@@ -8,11 +8,11 @@ const formatTime = (totalSeconds) => {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-export function BookingSheet({ seats, secondsLeft, onConfirm }) {
+export function BookingSheet({ seats, secondsLeft, onConfirm, urgentThreshold = 60 }) {
   if (seats.length === 0) return null
 
   const total = seats.reduce((sum, s) => sum + s.price, 0)
-  const isUrgent = secondsLeft < 60
+  const isUrgent = secondsLeft < urgentThreshold
   const seatLabels = seats
     .slice()
     .sort((a, b) => (a.row === b.row ? a.number - b.number : a.row.localeCompare(b.row)))

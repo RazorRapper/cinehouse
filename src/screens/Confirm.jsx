@@ -1,18 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { confirmBooking } from '../api/bookingsApi.js'
+import { getSessionUserId } from '../utils/sessionUser.js'
 import { useBooking } from '../context/BookingContext.jsx'
-
-const generateBookingId = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let id = 'CH-'
-  for (let i = 0; i < 7; i++) id += chars[Math.floor(Math.random() * chars.length)]
-  return id
-}
 
 export function Confirm() {
   const navigate = useNavigate()
   const { movie, cinema, showtime, seats, setBookingId } = useBooking()
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState(null)
 
   if (!movie || !cinema || !showtime || seats.length === 0) {
     return (
@@ -28,14 +24,24 @@ export function Confirm() {
     .sort((a, b) => (a.row === b.row ? a.number - b.number : a.row.localeCompare(b.row)))
     .map((s) => s.id)
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     setSubmitting(true)
-    // Mock payment: transition selected seats blue -> grey happens visually
-    // on the seat map screen state; here we just simulate a short delay.
-    setTimeout(() => {
-      setBookingId(generateBookingId())
+    setError(null)
+    // No real payment — this is where a payment provider would sit. On
+    // success, the backend flips the held seats blue -> booked (grey) and
+    // returns a real booking id for the QR ticket.
+    try {
+      const { bookingId } = await confirmBooking({
+        showId: showtime.id,
+        seatIds: seats.map((s) => s.id),
+        userId: getSessionUserId(),
+      })
+      setBookingId(bookingId)
       navigate('/ticket')
-    }, 700)
+    } catch (err) {
+      setError(err.message)
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -103,6 +109,7 @@ export function Confirm() {
       </div>
 
       <div className="fixed bottom-0 inset-x-0 z-20 bg-bg-base/95 backdrop-blur border-t border-border-subtle px-4 py-3">
+        {error && <p className="text-xs text-error text-center mb-2">{error}</p>}
         <button
           type="button"
           onClick={handleConfirm}

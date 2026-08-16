@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import TicketStubCard from '../components/TicketStubCard.jsx'
 import LocationPill from '../components/LocationPill.jsx'
-import { nowShowing, comingSoon, filterOptions } from '../data/mockMovies.js'
+import { filterOptions } from '../data/mockMovies.js' // static filter-chip labels only, not movie data
 import { mockCity } from '../data/mockCinemas.js'
+import { fetchNowShowing, fetchUpcoming, searchMovies } from '../api/moviesApi.js'
 import { useBooking } from '../context/BookingContext.jsx'
 
 const FILTER_CHIPS = [
@@ -11,6 +12,8 @@ const FILTER_CHIPS = [
   ...filterOptions.genre.map((v) => ({ type: 'genre', value: v })),
   ...filterOptions.format.map((v) => ({ type: 'format', value: v })),
 ]
+
+const SEARCH_DEBOUNCE_MS = 300
 
 function FilterChip({ label, active, onClick }) {
   return (
@@ -45,11 +48,79 @@ function MovieRow({ title, movies, badge, onSelect }) {
   )
 }
 
+function MovieRowSkeleton({ title }) {
+  return (
+    <section className="mt-6">
+      <h2 className="font-display text-[22px] tracking-tight px-4 mb-3">{title}</h2>
+      <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 pb-1">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="w-[168px] flex-shrink-0 rounded-xl border border-border-subtle bg-surface overflow-hidden animate-pulse">
+            <div className="aspect-[2/3] bg-surface-raised" />
+            <div className="p-4 flex flex-col gap-2">
+              <div className="h-4 w-3/4 rounded bg-surface-raised" />
+              <div className="h-3 w-1/2 rounded bg-surface-raised" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function Home() {
   const navigate = useNavigate()
   const { startBooking } = useBooking()
   const [query, setQuery] = useState('')
   const [activeChips, setActiveChips] = useState(new Set())
+
+  const [nowShowing, setNowShowing] = useState([])
+  const [comingSoon, setComingSoon] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
+
+  const [searchResults, setSearchResults] = useState(null) // null = not searching
+  const [searching, setSearching] = useState(false)
+  const debounceRef = useRef(null)
+
+  // Real TMDB-backed data for Home's two rails.
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setLoadError(null)
+    Promise.all([fetchNowShowing(), fetchUpcoming()])
+      .then(([now, upcoming]) => {
+        if (cancelled) return
+        setNowShowing(now)
+        setComingSoon(upcoming)
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Debounced search — fires 300ms after the user stops typing, not per keystroke.
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (!query.trim()) {
+      setSearchResults(null)
+      setSearching(false)
+      return undefined
+    }
+    setSearching(true)
+    debounceRef.current = setTimeout(() => {
+      searchMovies(query)
+        .then((results) => setSearchResults(results))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearching(false))
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(debounceRef.current)
+  }, [query])
 
   const toggleChip = (chip) => {
     setActiveChips((prev) => {
@@ -60,8 +131,7 @@ export function Home() {
     })
   }
 
-  const matchesFilters = (movie) => {
-    if (query && !movie.title.toLowerCase().includes(query.toLowerCase())) return false
+  const matchesChips = (movie) => {
     if (activeChips.size === 0) return true
     return [...activeChips].every((key) => {
       const [type, value] = key.split(':')
@@ -72,13 +142,19 @@ export function Home() {
     })
   }
 
-  const filteredNowShowing = useMemo(() => nowShowing.filter(matchesFilters), [query, activeChips])
-  const filteredComingSoon = useMemo(() => comingSoon.filter(matchesFilters), [query, activeChips])
+  const filteredNowShowing = useMemo(() => nowShowing.filter(matchesChips), [nowShowing, activeChips])
+  const filteredComingSoon = useMemo(() => comingSoon.filter(matchesChips), [comingSoon, activeChips])
+  const filteredSearchResults = useMemo(
+    () => (searchResults ?? []).filter(matchesChips),
+    [searchResults, activeChips],
+  )
 
   const handleSelect = (movie) => {
     startBooking(movie)
     navigate(`/movie/${movie.id}`)
   }
+
+  const isSearchMode = query.trim().length > 0
 
   return (
     <div className="min-h-screen bg-bg-base pb-10">
@@ -147,16 +223,48 @@ export function Home() {
         </div>
       </header>
 
-      {filteredNowShowing.length > 0 && (
-        <MovieRow title="Now Showing" movies={filteredNowShowing} badge="now-showing" onSelect={handleSelect} />
-      )}
-      {filteredComingSoon.length > 0 && (
-        <MovieRow title="Coming Soon" movies={filteredComingSoon} badge="coming-soon" onSelect={handleSelect} />
-      )}
-      {filteredNowShowing.length === 0 && filteredComingSoon.length === 0 && (
+      {loadError && !isSearchMode && (
         <div className="px-4 py-16 text-center text-text-secondary">
-          <p className="text-sm">No movies match your filters.</p>
+          <p className="text-sm text-error">Couldn't load movies: {loadError}</p>
         </div>
+      )}
+
+      {isSearchMode ? (
+        <>
+          {searching && <MovieRowSkeleton title="Searching…" />}
+          {!searching && filteredSearchResults.length > 0 && (
+            <MovieRow title={`Results for "${query}"`} movies={filteredSearchResults} onSelect={handleSelect} />
+          )}
+          {!searching && searchResults && filteredSearchResults.length === 0 && (
+            <div className="px-4 py-16 text-center text-text-secondary">
+              <p className="text-sm">No movies match "{query}".</p>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {loading && (
+            <>
+              <MovieRowSkeleton title="Now Showing" />
+              <MovieRowSkeleton title="Coming Soon" />
+            </>
+          )}
+          {!loading && !loadError && (
+            <>
+              {filteredNowShowing.length > 0 && (
+                <MovieRow title="Now Showing" movies={filteredNowShowing} badge="now-showing" onSelect={handleSelect} />
+              )}
+              {filteredComingSoon.length > 0 && (
+                <MovieRow title="Coming Soon" movies={filteredComingSoon} badge="coming-soon" onSelect={handleSelect} />
+              )}
+              {filteredNowShowing.length === 0 && filteredComingSoon.length === 0 && (
+                <div className="px-4 py-16 text-center text-text-secondary">
+                  <p className="text-sm">No movies match your filters.</p>
+                </div>
+              )}
+            </>
+          )}
+        </>
       )}
     </div>
   )

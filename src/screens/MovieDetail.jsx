@@ -1,17 +1,63 @@
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getMovieById } from '../data/mockMovies.js'
+import { fetchMovieDetail } from '../api/moviesApi.js'
 import { useBooking } from '../context/BookingContext.jsx'
+
+function CastAvatar({ name, avatar }) {
+  if (avatar) {
+    return <img src={avatar} alt={name} className="h-14 w-14 rounded-full object-cover border border-border-subtle" />
+  }
+  const initials = name
+    .split(' ')
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+  return (
+    <div className="h-14 w-14 rounded-full border border-border-subtle bg-surface-raised flex items-center justify-center">
+      <span className="text-xs text-text-secondary">{initials}</span>
+    </div>
+  )
+}
 
 export function MovieDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { startBooking } = useBooking()
-  const movie = getMovieById(id)
+  const [movie, setMovie] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  if (!movie) {
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetchMovieDetail(id)
+      .then((m) => {
+        if (!cancelled) setMovie(m)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  if (loading) {
     return (
       <div className="min-h-screen bg-bg-base flex items-center justify-center px-4">
-        <p className="text-text-secondary text-sm">Movie not found.</p>
+        <p className="text-text-secondary text-sm">Loading…</p>
+      </div>
+    )
+  }
+
+  if (error || !movie) {
+    return (
+      <div className="min-h-screen bg-bg-base flex items-center justify-center px-4">
+        <p className="text-text-secondary text-sm">{error ? `Couldn't load movie: ${error}` : 'Movie not found.'}</p>
       </div>
     )
   }
@@ -39,7 +85,7 @@ export function MovieDetail() {
 
       {/* Backdrop */}
       <div className="relative w-full aspect-[16/9]">
-        <img src={movie.backdrop} alt="" className="h-full w-full object-cover" />
+        {movie.backdrop && <img src={movie.backdrop} alt="" className="h-full w-full object-cover" />}
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-bg-base/40 to-bg-base" />
       </div>
 
@@ -68,28 +114,45 @@ export function MovieDetail() {
           ))}
         </div>
 
+        {/* Not in the original screens spec — additive: only shown when TMDB
+            actually has a trailer for this movie, silently omitted otherwise. */}
+        {movie.trailer && (
+          <a
+            href={movie.trailer.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 mt-4 rounded-lg border border-border-subtle px-3.5 py-2 min-h-[44px] text-sm text-text-primary
+              hover:border-accent-marquee-dim transition-colors
+              focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-marquee"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="text-accent-marquee">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M10 8.5v7l6-3.5-6-3.5Z" fill="currentColor" />
+            </svg>
+            Watch Trailer
+          </a>
+        )}
+
         <section className="mt-6">
           <h2 className="font-display text-xl tracking-tight mb-2">Synopsis</h2>
           <p className="text-sm text-text-secondary leading-relaxed">{movie.synopsis}</p>
         </section>
 
-        <section className="mt-6">
-          <h2 className="font-display text-xl tracking-tight mb-3">Cast</h2>
-          <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
-            {movie.cast.map((c) => (
-              <div key={c.name} className="flex flex-col items-center gap-1.5 flex-shrink-0 w-16">
-                <img
-                  src={c.avatar}
-                  alt={c.name}
-                  className="h-14 w-14 rounded-full object-cover border border-border-subtle"
-                />
-                <span className="text-[11px] text-text-secondary text-center leading-tight line-clamp-2">
-                  {c.name}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
+        {movie.cast.length > 0 && (
+          <section className="mt-6">
+            <h2 className="font-display text-xl tracking-tight mb-3">Cast</h2>
+            <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1">
+              {movie.cast.map((c) => (
+                <div key={c.name} className="flex flex-col items-center gap-1.5 flex-shrink-0 w-16">
+                  <CastAvatar name={c.name} avatar={c.avatar} />
+                  <span className="text-[11px] text-text-secondary text-center leading-tight line-clamp-2">
+                    {c.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
 
       {/* Sticky bottom CTA */}

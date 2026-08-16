@@ -2,8 +2,23 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import CinemaListItem from '../components/CinemaListItem.jsx'
 import LocationPill from '../components/LocationPill.jsx'
-import { getCinemasNearby, mockCity } from '../data/mockCinemas.js'
+import { mockCity } from '../data/mockCinemas.js' // display label only; cinemas themselves are real (Firestore-backed)
+import { fetchNearbyCinemas } from '../api/cinemasApi.js'
+import { fetchShows } from '../api/showsApi.js'
 import { useBooking } from '../context/BookingContext.jsx'
+
+// Bengaluru city-center fallback — used only if the browser denies/lacks
+// geolocation, via the "browse by city" fallback button.
+const FALLBACK_COORDS = { lat: 12.9716, lng: 77.5946 }
+
+// Seat pricing lives per-seat-tier in Firestore (Club/Royal/Recliner), not
+// on the show itself — this is the Club (lowest) tier price, used only as
+// a "starting from" figure on the showtime pill/CTA.
+const STARTING_PRICE = 150
+
+function formatShowTime(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
 
 function SkeletonRow() {
   return (
@@ -27,18 +42,64 @@ export function SelectCinema() {
   const { movie, cinema, showtime, setCinema, setShowtime } = useBooking()
   const [loading, setLoading] = useState(true)
   const [cinemas, setCinemas] = useState([])
-  const [noResults, setNoResults] = useState(false)
+  const [geoError, setGeoError] = useState(null)
+  const [loadError, setLoadError] = useState(null)
+
+  const loadCinemas = (coords) => {
+    setLoading(true)
+    setLoadError(null)
+    Promise.all([fetchNearbyCinemas({ ...coords, movieId: movie.id }), fetchShows({ movieId: movie.id })])
+      .then(([nearby, shows]) => {
+        const showsByCinema = new Map()
+        shows.forEach((show) => {
+          if (!showsByCinema.has(show.cinemaId)) showsByCinema.set(show.cinemaId, [])
+          showsByCinema.get(show.cinemaId).push(show)
+        })
+
+        const withShowtimes = nearby.map((c) => ({
+          ...c,
+          distance: c.distanceKm != null ? `${c.distanceKm} km` : '—',
+          showtimes: (showsByCinema.get(c.id) ?? [])
+            .sort((a, b) => new Date(a.time) - new Date(b.time))
+            .map((show) => ({
+              id: show.id, // real Firestore show doc id — used directly as showId downstream
+              time: formatShowTime(show.time),
+              format: '2D', // per-show format isn't modeled in the seed data yet
+              price: STARTING_PRICE,
+            })),
+        }))
+
+        setCinemas(withShowtimes)
+      })
+      .catch((err) => setLoadError(err.message))
+      .finally(() => setLoading(false))
+  }
 
   useEffect(() => {
-    setLoading(true)
-    const timer = setTimeout(() => {
-      const results = getCinemasNearby()
-      setCinemas(results)
-      setNoResults(results.length === 0)
+    if (!movie) return
+    if (!navigator.geolocation) {
+      setGeoError('Geolocation is not available in this browser.')
       setLoading(false)
-    }, 900)
-    return () => clearTimeout(timer)
-  }, [])
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGeoError(null)
+        loadCinemas({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+      },
+      (err) => {
+        setGeoError(err.message || 'Location access was denied.')
+        setLoading(false)
+      },
+      { timeout: 8000 },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movie?.id])
+
+  const handleBrowseByCity = () => {
+    setGeoError(null)
+    loadCinemas(FALLBACK_COORDS)
+  }
 
   const handleSelectShowtime = (cn, st) => {
     setCinema(cn)
@@ -56,6 +117,8 @@ export function SelectCinema() {
       </div>
     )
   }
+
+  const noResults = !loading && !geoError && !loadError && cinemas.length === 0
 
   return (
     <div className="min-h-screen bg-bg-base pb-24">
@@ -98,13 +161,28 @@ export function SelectCinema() {
           </>
         )}
 
-        {!loading && noResults && (
+        {!loading && (geoError || loadError) && (
           <div className="flex flex-col items-center text-center px-4 py-16 gap-3">
             <p className="text-sm text-text-secondary">
-              No cinemas found nearby showing {movie.title}.
+              {geoError ? `Couldn't get your location: ${geoError}` : `Couldn't load cinemas: ${loadError}`}
             </p>
             <button
               type="button"
+              onClick={handleBrowseByCity}
+              className="rounded-lg border border-accent-marquee text-accent-marquee px-4 py-2.5 min-h-[44px] text-sm font-medium
+                focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-marquee"
+            >
+              Browse by city
+            </button>
+          </div>
+        )}
+
+        {noResults && (
+          <div className="flex flex-col items-center text-center px-4 py-16 gap-3">
+            <p className="text-sm text-text-secondary">No cinemas found nearby showing {movie.title}.</p>
+            <button
+              type="button"
+              onClick={handleBrowseByCity}
               className="rounded-lg border border-accent-marquee text-accent-marquee px-4 py-2.5 min-h-[44px] text-sm font-medium
                 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-marquee"
             >
@@ -114,6 +192,8 @@ export function SelectCinema() {
         )}
 
         {!loading &&
+          !geoError &&
+          !loadError &&
           cinemas.map((cn) => (
             <CinemaListItem
               key={cn.id}
@@ -133,7 +213,7 @@ export function SelectCinema() {
               hover:bg-accent-marquee/90 active:scale-[0.99] transition-colors
               focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-marquee"
           >
-            Continue · {showtime.time} · ₹{showtime.price}
+            Continue · {showtime.time} · from ₹{showtime.price}
           </button>
         </div>
       )}
