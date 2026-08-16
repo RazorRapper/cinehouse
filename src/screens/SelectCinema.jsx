@@ -122,6 +122,10 @@ export function SelectCinema() {
   }
 
   const noResults = !loading && !geoError && !loadError && cinemas.length === 0
+  // Cinemas come back distance-sorted, so the nearest one's city is the
+  // best real-world stand-in for "your detected city" — no geocoding API
+  // needed. Falls back to the static label while nothing's loaded yet.
+  const resolvedCity = cinemas[0]?.city ?? mockCity
 
   return (
     <div className="min-h-screen bg-bg-base pb-24">
@@ -148,9 +152,9 @@ export function SelectCinema() {
               />
               <circle cx="12" cy="9.5" r="2.5" stroke="currentColor" strokeWidth="1.8" />
             </svg>
-            Cinemas near {mockCity}
+            Cinemas near {resolvedCity}
           </h1>
-          <LocationPill city={mockCity} onClick={() => {}} className="text-xs" />
+          <LocationPill city={resolvedCity} onClick={() => {}} className="text-xs" />
         </div>
         <p className="text-xs text-text-secondary mt-1 line-clamp-1">{movie.title}</p>
       </header>

@@ -4,8 +4,11 @@
 import { getNowPlaying } from './tmdbService.js'
 import { buildSeatGrid } from './firestoreService.js'
 
-// Bengaluru-area cinemas — real-ish coordinates, backend-owned.
+// Cinemas across major Indian cities — real-ish coordinates, backend-owned.
+// Nationwide (not just one city) so "cinemas near me" returns something
+// sensible regardless of where the browser's geolocation resolves to.
 export const CINEMAS = [
+  // Bengaluru
   {
     id: 'cn-001',
     name: 'PVR Marquee — Orion Mall',
@@ -38,6 +41,125 @@ export const CINEMAS = [
     location: { lat: 12.9975, lng: 77.57 },
     screens: ['Screen 1'],
   },
+  // Mumbai
+  {
+    id: 'cn-mum-001',
+    name: 'PVR Icon — Infiniti Mall',
+    city: 'Mumbai',
+    address: 'Malad West, Mumbai',
+    location: { lat: 19.1863, lng: 72.8493 },
+    screens: ['Screen 1', 'Screen 2'],
+  },
+  {
+    id: 'cn-mum-002',
+    name: 'INOX — R City Mall',
+    city: 'Mumbai',
+    address: 'Ghatkopar West, Mumbai',
+    location: { lat: 19.0863, lng: 72.9081 },
+    screens: ['Screen 1', 'Screen 2', 'Screen 3'],
+  },
+  // Delhi
+  {
+    id: 'cn-del-001',
+    name: 'PVR Priya',
+    city: 'Delhi',
+    address: 'Vasant Vihar, New Delhi',
+    location: { lat: 28.5657, lng: 77.159 },
+    screens: ['Screen 1'],
+  },
+  {
+    id: 'cn-del-002',
+    name: 'INOX — Nehru Place',
+    city: 'Delhi',
+    address: 'Nehru Place, New Delhi',
+    location: { lat: 28.5487, lng: 77.2519 },
+    screens: ['Screen 1', 'Screen 2'],
+  },
+  // Hyderabad
+  {
+    id: 'cn-hyd-001',
+    name: 'PVR — Forum Sujana Mall',
+    city: 'Hyderabad',
+    address: 'Kukatpally, Hyderabad',
+    location: { lat: 17.4948, lng: 78.3996 },
+    screens: ['Screen 1', 'Screen 2'],
+  },
+  {
+    id: 'cn-hyd-002',
+    name: 'AMB Cinemas',
+    city: 'Hyderabad',
+    address: 'Gachibowli, Hyderabad',
+    location: { lat: 17.4401, lng: 78.3489 },
+    screens: ['Screen 1'],
+  },
+  // Chennai
+  {
+    id: 'cn-che-001',
+    name: 'PVR — Ampa Skywalk',
+    city: 'Chennai',
+    address: 'Aminjikarai, Chennai',
+    location: { lat: 13.0732, lng: 80.2216 },
+    screens: ['Screen 1', 'Screen 2'],
+  },
+  {
+    id: 'cn-che-002',
+    name: 'Sathyam Cinemas',
+    city: 'Chennai',
+    address: 'Royapettah, Chennai',
+    location: { lat: 13.0524, lng: 80.2645 },
+    screens: ['Screen 1', 'Screen 2', 'Screen 3'],
+  },
+  // Kolkata
+  {
+    id: 'cn-kol-001',
+    name: 'INOX — South City Mall',
+    city: 'Kolkata',
+    address: 'Prince Anwar Shah Road, Kolkata',
+    location: { lat: 22.5006, lng: 88.3616 },
+    screens: ['Screen 1', 'Screen 2'],
+  },
+  {
+    id: 'cn-kol-002',
+    name: 'PVR — Diamond Plaza',
+    city: 'Kolkata',
+    address: 'Diamond Harbour Road, Kolkata',
+    location: { lat: 22.539, lng: 88.3306 },
+    screens: ['Screen 1'],
+  },
+  // Pune
+  {
+    id: 'cn-pun-001',
+    name: 'PVR — Phoenix Marketcity',
+    city: 'Pune',
+    address: 'Viman Nagar, Pune',
+    location: { lat: 18.5621, lng: 73.9188 },
+    screens: ['Screen 1', 'Screen 2'],
+  },
+  {
+    id: 'cn-pun-002',
+    name: 'INOX — Bund Garden',
+    city: 'Pune',
+    address: 'Bund Garden Road, Pune',
+    location: { lat: 18.5362, lng: 73.8827 },
+    screens: ['Screen 1'],
+  },
+  // Ahmedabad
+  {
+    id: 'cn-ahm-001',
+    name: 'PVR — Acropolis Mall',
+    city: 'Ahmedabad',
+    address: 'Thaltej, Ahmedabad',
+    location: { lat: 23.0348, lng: 72.5079 },
+    screens: ['Screen 1', 'Screen 2'],
+  },
+  {
+    id: 'cn-ahm-002',
+    name: 'Cinepolis — Alpha One Mall',
+    city: 'Ahmedabad',
+    address: 'Vastrapur, Ahmedabad',
+    location: { lat: 23.0396, lng: 72.5266 },
+    screens: ['Screen 1'],
+  },
 ]
 
 const showtimes = () => {
@@ -61,36 +183,43 @@ async function seedCinemas(db) {
   return CINEMAS.length
 }
 
+// Every (cinema, movie, showtime) combination is independent — write them
+// all concurrently rather than one round trip at a time. With 18 cinemas x
+// 2 movies x 2 showtimes = 72 shows, a serial loop risked running past a
+// free-tier request timeout; this finishes in a few seconds instead.
 async function seedShowsAndSeats(db, movieIds) {
   const times = showtimes()
-  let showCount = 0
-  let seatCount = 0
+  const jobs = []
 
   for (const cinema of CINEMAS) {
     for (const movieId of movieIds) {
       for (const time of times) {
-        const showId = `show-${cinema.id}-${movieId}-${new Date(time).getTime()}`
-        const screenId = cinema.screens[0]
+        jobs.push(
+          (async () => {
+            const showId = `show-${cinema.id}-${movieId}-${new Date(time).getTime()}`
+            const screenId = cinema.screens[0]
 
-        await db
-          .collection('shows')
-          .doc(showId)
-          .set({ movieId, cinemaId: cinema.id, screenId, time, seatMapId: showId })
+            await db
+              .collection('shows')
+              .doc(showId)
+              .set({ movieId, cinemaId: cinema.id, screenId, time, seatMapId: showId })
 
-        const seats = buildSeatGrid()
-        const batch = db.batch()
-        seats.forEach((seat) => {
-          batch.set(db.collection('shows').doc(showId).collection('seats').doc(seat.seatId), seat)
-        })
-        await batch.commit()
+            const seats = buildSeatGrid()
+            const batch = db.batch()
+            seats.forEach((seat) => {
+              batch.set(db.collection('shows').doc(showId).collection('seats').doc(seat.seatId), seat)
+            })
+            await batch.commit()
 
-        showCount += 1
-        seatCount += seats.length
+            return seats.length
+          })(),
+        )
       }
     }
   }
 
-  return { showCount, seatCount }
+  const seatCounts = await Promise.all(jobs)
+  return { showCount: jobs.length, seatCount: seatCounts.reduce((sum, n) => sum + n, 0) }
 }
 
 export async function runSeed(db, { log = console.log } = {}) {
