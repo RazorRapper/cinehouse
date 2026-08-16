@@ -17,7 +17,10 @@ const FALLBACK_COORDS = { lat: 12.9716, lng: 77.5946 }
 const STARTING_PRICE = 150
 
 function formatShowTime(iso) {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  // Explicit locale + hour12 — leaving these implicit lets the browser's
+  // default locale drop AM/PM and render midnight as "0:00" instead of
+  // "12:00 AM".
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
 function SkeletonRow() {
