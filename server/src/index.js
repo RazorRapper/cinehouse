@@ -14,6 +14,7 @@ import cinemasRouter from './routes/cinemas.js'
 import showsRouter from './routes/shows.js'
 import seatsRouter from './routes/seats.js'
 import bookingsRouter from './routes/bookings.js'
+import adminRouter from './routes/admin.js'
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -52,6 +53,7 @@ app.use('/api/cinemas', cinemasRouter)
 app.use('/api/shows/:showId/seats', seatsRouter)
 app.use('/api/shows', showsRouter)
 app.use('/api/bookings', bookingsRouter)
+app.use('/api/admin', adminRouter)
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' })
