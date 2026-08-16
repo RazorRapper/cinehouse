@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  /* Colors — keep in sync with src/tokens/colors.js */
+  --color-bg-base: #0B0D12;
+  --color-surface: #14171F;
+  --color-surface-raised: #1C202B;
+  --color-border-subtle: #262B38;
+  --color-text-primary: #F4F1EA;
+  --color-text-secondary: #9AA0AC;
+  --color-accent-marquee: #E8A33D;
+  --color-accent-marquee-dim: #7A5A28;
+  --color-seat-available: #34D399;
+  --color-seat-selected: #4C8DFF;
+  --color-seat-booked: #4B5160;
+  --color-error: #E5484D;
+
+  /* Fonts — keep in sync with src/tokens/typography.js */
+  --font-display: 'Bebas Neue', 'Archivo Expanded', sans-serif;
+  --font-body: 'Inter', 'General Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Spacing scale (4px base) already covered by Tailwind defaults */
+  --radius-card: 12px;
+  --radius-btn: 8px;
+}
+
+@layer base {
+  * {
+    @apply border-border-subtle;
+  }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-bg-base text-text-primary font-body antialiased;
+    font-size: 16px;
+    line-height: 1.4;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent-marquee);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  .font-mono-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .animate-ticket-reveal {
+    animation: ticket-reveal 420ms ease-out both;
+  }
+}
+
+@keyframes ticket-reveal {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
